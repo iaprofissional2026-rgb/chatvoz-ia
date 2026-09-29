@@ -1,0 +1,6 @@
+{
+  "name": "VORTEX COMMS - Party Chat Gamer",
+  "description": "Party chat de voz gamer futurista com WebRTC de baixa latência, salas de esquadrão, visualizador de áudio e soundboard tático.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
