@@ -2,33 +2,209 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PeerInfo, RoomState, SignalingMessage } from '@/lib/types';
 
 interface StoredRoom {
+  cloudId?: string;
   state: RoomState;
   messages: SignalingMessage[];
   lastActive: Record<string, number>;
+  lastSyncedAt: number;
 }
 
-// In-memory signaling store
+const MASTER_REGISTRY_ID = 'ff808181a09d98f701a0eecb072f4527';
+const API_BASE = 'https://api.restful-api.dev/objects';
+
 declare global {
   var __vortex_rooms__: Map<string, StoredRoom> | undefined;
+  var __vortex_room_ids__: Record<string, string> | undefined;
 }
 
 if (!global.__vortex_rooms__) {
   global.__vortex_rooms__ = new Map<string, StoredRoom>();
 }
+if (!global.__vortex_room_ids__) {
+  global.__vortex_room_ids__ = {};
+}
 
 const rooms = global.__vortex_rooms__;
+const roomCloudIds = global.__vortex_room_ids__;
 
-function cleanStalePeers(roomId: string) {
-  const room = rooms.get(roomId);
-  if (!room) return;
+async function fetchMasterRegistry(): Promise<Record<string, string>> {
+  try {
+    const res = await fetch(`${API_BASE}/${MASTER_REGISTRY_ID}`, {
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.data?.rooms || {};
+    }
+  } catch {
+    // fallback
+  }
+  return {};
+}
+
+async function updateMasterRegistry(newRooms: Record<string, string>) {
+  try {
+    await fetch(`${API_BASE}/${MASTER_REGISTRY_ID}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'vortex_master_registry_v1',
+        data: { rooms: newRooms },
+      }),
+    });
+  } catch {
+    // ignore
+  }
+}
+
+async function getOrCreateCloudRoom(roomId: string, initialName?: string): Promise<StoredRoom> {
+  let localRoom = rooms.get(roomId);
   const now = Date.now();
-  const timeoutMs = 25000; // 25 seconds of silence = disconnected
+
+  // If room is in memory and was synced recently (<1.5s ago), return it
+  if (localRoom && now - localRoom.lastSyncedAt < 1500) {
+    return localRoom;
+  }
+
+  // 1. Try to find cloud ID from memory or master registry
+  let cId = roomCloudIds[roomId] || localRoom?.cloudId;
+  if (!cId) {
+    const master = await fetchMasterRegistry();
+    cId = master[roomId];
+    if (cId) {
+      roomCloudIds[roomId] = cId;
+    }
+  }
+
+  // 2. If cloud ID exists, fetch latest cloud state
+  if (cId) {
+    try {
+      const res = await fetch(`${API_BASE}/${cId}`, {
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        const cloudData = await res.json();
+        const rData = cloudData.data;
+        if (rData) {
+          // Merge local and cloud
+          if (!localRoom) {
+            localRoom = {
+              cloudId: cId,
+              state: {
+                id: roomId,
+                name: rData.name || initialName || `SQUAD #${roomId}`,
+                gameTag: rData.gameTag || 'COMPETITIVE',
+                createdAt: rData.createdAt || now,
+                peers: rData.peers || {},
+              },
+              messages: rData.messages || [],
+              lastActive: rData.lastActive || {},
+              lastSyncedAt: now,
+            };
+            rooms.set(roomId, localRoom);
+          } else {
+            // Merge peers and messages
+            localRoom.state.peers = { ...rData.peers, ...localRoom.state.peers };
+            const existingMsgIds = new Set(localRoom.messages.map((m) => m.id));
+            (rData.messages || []).forEach((m: SignalingMessage) => {
+              if (!existingMsgIds.has(m.id)) {
+                localRoom!.messages.push(m);
+                existingMsgIds.add(m.id);
+              }
+            });
+            localRoom.lastSyncedAt = now;
+          }
+          return localRoom;
+        }
+      }
+    } catch {
+      // fallback to memory
+    }
+  }
+
+  // 3. If no cloud object exists yet, create one
+  if (!localRoom) {
+    localRoom = {
+      state: {
+        id: roomId,
+        name: initialName || `SQUAD #${roomId}`,
+        gameTag: 'COMPETITIVE',
+        createdAt: now,
+        peers: {},
+      },
+      messages: [],
+      lastActive: {},
+      lastSyncedAt: now,
+    };
+    rooms.set(roomId, localRoom);
+  }
+
+  try {
+    const createRes = await fetch(API_BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: `vortex_room_${roomId}`,
+        data: {
+          name: localRoom.state.name,
+          gameTag: localRoom.state.gameTag,
+          createdAt: localRoom.state.createdAt,
+          peers: localRoom.state.peers,
+          messages: localRoom.messages.slice(-50),
+          lastActive: localRoom.lastActive,
+        },
+      }),
+    });
+    if (createRes.ok) {
+      const createdObj = await createRes.json();
+      localRoom.cloudId = createdObj.id;
+      roomCloudIds[roomId] = createdObj.id;
+
+      // Update master index
+      const master = await fetchMasterRegistry();
+      master[roomId] = createdObj.id;
+      updateMasterRegistry(master).catch(() => {});
+    }
+  } catch {
+    // ignore
+  }
+
+  return localRoom;
+}
+
+// Background sync room state to cloud
+function syncRoomToCloud(roomId: string) {
+  const room = rooms.get(roomId);
+  const cId = room?.cloudId || roomCloudIds[roomId];
+  if (!room || !cId) return;
+
+  fetch(`${API_BASE}/${cId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: `vortex_room_${roomId}`,
+      data: {
+        name: room.state.name,
+        gameTag: room.state.gameTag,
+        createdAt: room.state.createdAt,
+        peers: room.state.peers,
+        messages: room.messages.slice(-60),
+        lastActive: room.lastActive,
+      },
+    }),
+  }).catch(() => {});
+}
+
+function cleanStalePeers(room: StoredRoom, roomId: string) {
+  const now = Date.now();
+  const timeoutMs = 30000;
 
   for (const [peerId, lastSeen] of Object.entries(room.lastActive)) {
     if (now - lastSeen > timeoutMs && !room.state.peers[peerId]?.isAiBot) {
       delete room.state.peers[peerId];
       delete room.lastActive[peerId];
-      // broadcast leave message
       room.messages.push({
         id: `leave_${peerId}_${now}`,
         roomId,
@@ -40,7 +216,6 @@ function cleanStalePeers(roomId: string) {
     }
   }
 
-  // Keep messages list bounded
   if (room.messages.length > 200) {
     room.messages = room.messages.slice(-100);
   }
@@ -56,24 +231,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing roomId or peerId' }, { status: 400 });
   }
 
-  const room = rooms.get(roomId);
-  if (!room) {
-    return NextResponse.json({
-      roomExists: false,
-      peers: {},
-      messages: [],
-      serverTime: Date.now(),
-    });
-  }
-
-  // Update heartbeat
+  const room = await getOrCreateCloudRoom(roomId);
   room.lastActive[peerId] = Date.now();
-  cleanStalePeers(roomId);
+  cleanStalePeers(room, roomId);
 
-  // Filter messages for this peer or broadcast (toPeerId undefined), sent after 'since'
   const newMessages = room.messages.filter((msg) => {
     if (msg.timestamp <= since) return false;
-    if (msg.fromPeerId === peerId) return false; // don't return own messages
+    if (msg.fromPeerId === peerId) return false;
     return !msg.toPeerId || msg.toPeerId === peerId;
   });
 
@@ -96,27 +260,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid signaling payload' }, { status: 400 });
     }
 
-    let room = rooms.get(roomId);
+    const room = await getOrCreateCloudRoom(roomId, payload?.roomName);
     const now = Date.now();
-
-    if (!room) {
-      room = {
-        state: {
-          id: roomId,
-          name: payload?.roomName || `SQUAD #${roomId}`,
-          gameTag: payload?.gameTag || 'COMPETITIVE',
-          createdAt: now,
-          peers: {},
-        },
-        messages: [],
-        lastActive: {},
-      };
-      rooms.set(roomId, room);
-    }
-
     room.lastActive[fromPeerId] = now;
 
-    // Handle peer lifecycle
     if (type === 'join') {
       const peerInfo: PeerInfo = {
         id: fromPeerId,
@@ -143,7 +290,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Create message record
     const message: SignalingMessage = {
       id: `${type}_${fromPeerId}_${now}_${Math.random().toString(36).slice(2, 6)}`,
       roomId,
@@ -156,10 +302,12 @@ export async function POST(req: NextRequest) {
 
     room.messages.push(message);
 
-    // Keep memory clean
     if (room.messages.length > 200) {
       room.messages = room.messages.slice(-100);
     }
+
+    // Sync state to cloud in background
+    syncRoomToCloud(roomId);
 
     return NextResponse.json({
       success: true,

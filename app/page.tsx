@@ -60,6 +60,21 @@ export default function VortexCommsApp() {
   const [copiedLink, setCopiedLink] = useState(false);
   const [selfJoinedAt] = useState(1700000000000);
 
+  // Sync room from URL parameters immediately on mount (so link invites work 100%)
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlRoom = params.get('room')?.trim().toUpperCase();
+      if (urlRoom) {
+        const timer = setTimeout(() => {
+          setRoomId(urlRoom);
+          setInRoom(true);
+        }, 0);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, []);
+
   // User Identity
   const [userName, setUserName] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -175,12 +190,12 @@ export default function VortexCommsApp() {
                 {selectedGame}
               </span>
 
-              {/* Squad count and slot */}
+              {/* Squad count and status */}
               <span className="flex items-center gap-1.5 text-xs font-mono px-2.5 py-1.5 rounded-xl bg-zinc-950 border border-red-950/80 text-red-400">
                 <Users className="w-3.5 h-3.5 text-red-500" />
                 <span>{peerList.length + 1} ONLINE</span>
                 <span className="text-[10px] text-red-400 font-bold bg-red-950 px-1.5 py-0.5 rounded border border-red-900 hidden sm:inline">
-                  SLOT #{voice.slotIndex + 1}
+                  P2P DIRECT
                 </span>
               </span>
             </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { PeerInfo, ChatMessage } from '@/lib/types';
+import { PeerInfo, ChatMessage, SignalingMessage } from '@/lib/types';
 import {
   getAudioContext,
   unlockAudioContext,
@@ -16,9 +16,7 @@ interface UseVoiceRoomOptions {
   userName: string;
 }
 
-const MAX_SLOTS = 8;
-
-const ICE_CONFIG = {
+const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
@@ -29,9 +27,20 @@ const ICE_CONFIG = {
 };
 
 export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
+  // Stable peer ID generated immediately (never empty)
+  const [peerId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      let id = sessionStorage.getItem('vortex_peer_id');
+      if (!id) {
+        id = `p_${Math.random().toString(36).substring(2, 8)}`;
+        sessionStorage.setItem('vortex_peer_id', id);
+      }
+      return id;
+    }
+    return `p_${Math.random().toString(36).substring(2, 8)}`;
+  });
+
   const [connected, setConnected] = useState(false);
-  const [peerId, setPeerId] = useState<string>('');
-  const [slotIndex, setSlotIndex] = useState<number>(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
   const [isPttMode, setIsPttMode] = useState(false);
@@ -49,21 +58,20 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
   const [micPermissionError, setMicPermissionError] = useState<string | null>(null);
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
-  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
 
-  // Internal references
-  const peerInstanceRef = useRef<any>(null);
+  // WebRTC internal refs
   const localStreamRef = useRef<MediaStream | null>(null);
-  const dataConnsRef = useRef<Record<string, any>>({});
-  const mediaCallsRef = useRef<Record<string, any>>({});
+  const peerConnectionsRef = useRef<Record<string, RTCPeerConnection>>({});
   const remoteGainNodesRef = useRef<Record<string, GainNode>>({});
   const remoteAnalysersRef = useRef<Record<string, AnalyserNode>>({});
+  const iceCandidatesQueueRef = useRef<Record<string, RTCIceCandidateInit[]>>({});
   const loopbackGainRef = useRef<GainNode | null>(null);
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  const lastSyncTimestampRef = useRef<number>(0);
+  const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const animFrameRef = useRef<number | null>(null);
-  const heartbeatTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Update audio input devices
+  // Enumerate audio input devices
   const updateAudioDevices = useCallback(async () => {
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) return;
     try {
@@ -113,13 +121,15 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
           audioTrack.enabled = !isMuted && (!isPttMode || isPttActive);
         }
 
-        // Replace track in existing outgoing calls
-        Object.values(mediaCallsRef.current).forEach((call) => {
-          if (call.peerConnection && audioTrack) {
-            const senders = call.peerConnection.getSenders();
-            const sender = senders.find((s: any) => s.track?.kind === 'audio');
+        // Attach track to all existing RTCPeerConnections
+        Object.values(peerConnectionsRef.current).forEach((pc) => {
+          if (audioTrack) {
+            const senders = pc.getSenders();
+            const sender = senders.find((s) => s.track?.kind === 'audio');
             if (sender) {
               sender.replaceTrack(audioTrack).catch(() => {});
+            } else {
+              pc.addTrack(audioTrack, stream);
             }
           }
         });
@@ -160,35 +170,52 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
     }
   }, []);
 
-  // Broadcast data payload to all connected peers
-  const broadcastData = useCallback((type: string, payload: any) => {
-    const message = { type, payload, timestamp: Date.now() };
+  // Send signaling message via both BroadcastChannel and API route
+  const sendSignaling = useCallback(
+    async (type: string, payload: any = {}, toPeerId?: string) => {
+      const msg: SignalingMessage = {
+        id: `${type}_${peerId}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        roomId,
+        fromPeerId: peerId,
+        toPeerId,
+        type: type as any,
+        payload,
+        timestamp: Date.now(),
+      };
 
-    // Send via DataConnections
-    Object.values(dataConnsRef.current).forEach((conn) => {
-      if (conn && conn.open) {
+      // 1. Send via local BroadcastChannel (instant for tabs on same machine)
+      if (broadcastChannelRef.current) {
         try {
-          conn.send(message);
+          broadcastChannelRef.current.postMessage(msg);
         } catch {
           // ignore
         }
       }
-    });
 
-    // Send via local BroadcastChannel
-    if (broadcastChannelRef.current) {
+      // 2. Send via Next.js API (relays to cloud store across Vercel)
       try {
-        broadcastChannelRef.current.postMessage(message);
+        fetch('/api/signaling', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomId,
+            fromPeerId: peerId,
+            toPeerId,
+            type,
+            payload,
+          }),
+        }).catch(() => {});
       } catch {
         // ignore
       }
-    }
-  }, []);
+    },
+    [roomId, peerId]
+  );
 
-  // Setup incoming stream audio routing
-  const attachRemoteStream = useCallback(
-    (remotePeerId: string, stream: MediaStream) => {
-      setRemoteStreams((prev) => ({ ...prev, [remotePeerId]: stream }));
+  // Setup Web Audio routing for remote stream
+  const routeRemoteAudio = useCallback(
+    (remId: string, stream: MediaStream) => {
+      setRemoteStreams((prev) => ({ ...prev, [remId]: stream }));
 
       const audioCtx = getAudioContext();
       if (!audioCtx) return;
@@ -198,25 +225,22 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
       }
 
       try {
-        // Check if already routed
-        if (remoteGainNodesRef.current[remotePeerId]) {
-          return;
-        }
+        if (remoteGainNodesRef.current[remId]) return;
 
         const source = audioCtx.createMediaStreamSource(stream);
         const gainNode = audioCtx.createGain();
-        const initialVol = peerVolumes[remotePeerId] ?? 1.0;
+        const initialVol = peerVolumes[remId] ?? 1.0;
         gainNode.gain.value = isDeafened ? 0 : initialVol;
 
         const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 128;
+        analyser.fftSize = 64;
 
         source.connect(analyser);
         analyser.connect(gainNode);
         gainNode.connect(audioCtx.destination);
 
-        remoteGainNodesRef.current[remotePeerId] = gainNode;
-        remoteAnalysersRef.current[remotePeerId] = analyser;
+        remoteGainNodesRef.current[remId] = gainNode;
+        remoteAnalysersRef.current[remId] = analyser;
       } catch (err) {
         console.warn('Audio routing error:', err);
       }
@@ -224,350 +248,270 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
     [isDeafened, peerVolumes]
   );
 
-  // Handle incoming data message from remote peer
-  const handleDataMessage = useCallback(
-    (data: any, fromPeerId?: string) => {
-      if (!data || !data.type) return;
+  // Create or get RTCPeerConnection for a remote peer
+  const getOrCreatePeerConnection = useCallback(
+    (remId: string): RTCPeerConnection => {
+      if (peerConnectionsRef.current[remId]) {
+        return peerConnectionsRef.current[remId];
+      }
 
-      if (data.type === 'announce') {
-        const info: PeerInfo = data.payload;
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+      peerConnectionsRef.current[remId] = pc;
+
+      // Add local audio track
+      if (localStreamRef.current) {
+        localStreamRef.current.getAudioTracks().forEach((track) => {
+          pc.addTrack(track, localStreamRef.current!);
+        });
+      }
+
+      // Handle ICE candidates
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          sendSignaling('ice-candidate', { candidate: event.candidate }, remId);
+        }
+      };
+
+      // Handle incoming remote audio stream
+      pc.ontrack = (event) => {
+        if (event.streams && event.streams[0]) {
+          routeRemoteAudio(remId, event.streams[0]);
+          playJoinSound();
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+          pc.close();
+          delete peerConnectionsRef.current[remId];
+          delete remoteGainNodesRef.current[remId];
+          delete remoteAnalysersRef.current[remId];
+          setRemoteStreams((prev) => {
+            const next = { ...prev };
+            delete next[remId];
+            return next;
+          });
+        }
+      };
+
+      return pc;
+    },
+    [sendSignaling, routeRemoteAudio]
+  );
+
+  // Handle incoming signaling message (from API or BroadcastChannel)
+  const handleIncomingMessage = useCallback(
+    async (msg: SignalingMessage) => {
+      if (!msg || msg.fromPeerId === peerId) return;
+      if (msg.toPeerId && msg.toPeerId !== peerId) return;
+
+      const fromId = msg.fromPeerId;
+
+      if (msg.type === 'join') {
+        playJoinSound();
         setPeers((prev) => ({
           ...prev,
-          [info.id]: {
-            ...prev[info.id],
-            ...info,
-          },
-        }));
-      } else if (data.type === 'presence') {
-        const { id, isMuted, isSpeaking, audioLevel } = data.payload;
-        if (id) {
-          setPeers((prev) => {
-            if (!prev[id]) return prev;
-            return {
-              ...prev,
-              [id]: {
-                ...prev[id],
-                isMuted: isMuted ?? prev[id].isMuted,
-                isSpeaking: isSpeaking ?? prev[id].isSpeaking,
-                audioLevel: audioLevel ?? prev[id].audioLevel,
-              },
-            };
-          });
-        }
-      } else if (data.type === 'chat') {
-        setMessages((prev) => [...prev, data.payload]);
-      } else if (data.type === 'sfx') {
-        triggerSfxById(data.payload.sfxId);
-      } else if (data.type === 'leave') {
-        const id = data.payload.id || fromPeerId;
-        if (id) {
-          playLeaveSound();
-          setPeers((prev) => {
-            const next = { ...prev };
-            delete next[id];
-            return next;
-          });
-          setRemoteStreams((prev) => {
-            const next = { ...prev };
-            delete next[id];
-            return next;
-          });
-        }
-      }
-    },
-    []
-  );
-
-  // Setup DataConnection listeners
-  const setupDataConnection = useCallback(
-    (conn: any) => {
-      const remoteId = conn.peer;
-      dataConnsRef.current[remoteId] = conn;
-
-      conn.on('open', () => {
-        // Send initial announcement
-        conn.send({
-          type: 'announce',
-          payload: {
-            id: peerInstanceRef.current?.id || '',
-            name: userName,
-            avatarSeed: peerInstanceRef.current?.id || '',
-            isMuted,
-            isDeafened,
+          [fromId]: {
+            id: fromId,
+            name: msg.payload?.name || `Squadmate_${fromId.slice(-4)}`,
+            avatarSeed: msg.payload?.avatarSeed || fromId,
+            isMuted: !!msg.payload?.isMuted,
+            isDeafened: !!msg.payload?.isDeafened,
             isSpeaking: false,
             audioLevel: 0,
-            pingMs: 20,
+            pingMs: 16,
             joinedAt: Date.now(),
           },
+        }));
+
+        // Send offer if our ID is lexicographically smaller to prevent collision
+        if (peerId < fromId) {
+          const pc = getOrCreatePeerConnection(fromId);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          sendSignaling('offer', { offer }, fromId);
+        }
+      } else if (msg.type === 'offer') {
+        const pc = getOrCreatePeerConnection(fromId);
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.payload.offer));
+
+        // Flush buffered ICE candidates
+        const queued = iceCandidatesQueueRef.current[fromId] || [];
+        for (const cand of queued) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(cand));
+          } catch {
+            // ignore
+          }
+        }
+        delete iceCandidatesQueueRef.current[fromId];
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        sendSignaling('answer', { answer }, fromId);
+      } else if (msg.type === 'answer') {
+        const pc = peerConnectionsRef.current[fromId];
+        if (pc && pc.signalingState !== 'stable') {
+          await pc.setRemoteDescription(new RTCSessionDescription(msg.payload.answer));
+
+          // Flush queued candidates
+          const queued = iceCandidatesQueueRef.current[fromId] || [];
+          for (const cand of queued) {
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(cand));
+            } catch {
+              // ignore
+            }
+          }
+          delete iceCandidatesQueueRef.current[fromId];
+        }
+      } else if (msg.type === 'ice-candidate') {
+        const pc = peerConnectionsRef.current[fromId];
+        if (pc && msg.payload.candidate) {
+          if (pc.remoteDescription) {
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(msg.payload.candidate));
+            } catch {
+              // ignore
+            }
+          } else {
+            // Buffer candidate
+            iceCandidatesQueueRef.current[fromId] = iceCandidatesQueueRef.current[fromId] || [];
+            iceCandidatesQueueRef.current[fromId].push(msg.payload.candidate);
+          }
+        }
+      } else if (msg.type === 'presence-update') {
+        const payload = msg.payload;
+        setPeers((prev) => {
+          if (!prev[fromId]) return prev;
+          return {
+            ...prev,
+            [fromId]: {
+              ...prev[fromId],
+              ...payload,
+            },
+          };
         });
-      });
-
-      conn.on('data', (data: any) => {
-        handleDataMessage(data, remoteId);
-      });
-
-      conn.on('close', () => {
-        delete dataConnsRef.current[remoteId];
+      } else if (msg.type === 'chat-message') {
+        setMessages((prev) => [...prev, msg.payload]);
+      } else if (msg.type === 'sfx-trigger') {
+        triggerSfxById(msg.payload.sfxId);
+      } else if (msg.type === 'leave') {
+        playLeaveSound();
+        if (peerConnectionsRef.current[fromId]) {
+          peerConnectionsRef.current[fromId].close();
+          delete peerConnectionsRef.current[fromId];
+        }
+        delete remoteGainNodesRef.current[fromId];
+        delete remoteAnalysersRef.current[fromId];
         setPeers((prev) => {
           const next = { ...prev };
-          delete next[remoteId];
+          delete next[fromId];
           return next;
         });
-      });
-
-      conn.on('error', () => {
-        delete dataConnsRef.current[remoteId];
-      });
-    },
-    [userName, isMuted, isDeafened, handleDataMessage]
-  );
-
-  // Setup outgoing call to a specific slot
-  const callSlot = useCallback(
-    (targetPeerId: string, stream: MediaStream) => {
-      const peer = peerInstanceRef.current;
-      if (!peer || targetPeerId === peer.id || mediaCallsRef.current[targetPeerId]) {
-        return;
-      }
-
-      try {
-        // Open DataConnection
-        if (!dataConnsRef.current[targetPeerId]) {
-          const conn = peer.connect(targetPeerId, {
-            metadata: { name: userName },
-            reliable: true,
-          });
-          setupDataConnection(conn);
-        }
-
-        // Call remote peer with audio stream
-        const call = peer.call(targetPeerId, stream, {
-          metadata: { name: userName },
+        setRemoteStreams((prev) => {
+          const next = { ...prev };
+          delete next[fromId];
+          return next;
         });
-
-        mediaCallsRef.current[targetPeerId] = call;
-
-        call.on('stream', (remStream: MediaStream) => {
-          playJoinSound();
-          attachRemoteStream(targetPeerId, remStream);
-          setPeers((prev) => ({
-            ...prev,
-            [targetPeerId]: {
-              id: targetPeerId,
-              name: call.metadata?.name || `Squadmate_${targetPeerId.slice(-4)}`,
-              avatarSeed: targetPeerId,
-              isMuted: false,
-              isDeafened: false,
-              isSpeaking: false,
-              audioLevel: 0,
-              pingMs: 18,
-              joinedAt: Date.now(),
-              hasAudio: true,
-            },
-          }));
-        });
-
-        call.on('close', () => {
-          delete mediaCallsRef.current[targetPeerId];
-          delete remoteGainNodesRef.current[targetPeerId];
-          delete remoteAnalysersRef.current[targetPeerId];
-          setRemoteStreams((prev) => {
-            const next = { ...prev };
-            delete next[targetPeerId];
-            return next;
-          });
-        });
-
-        call.on('error', () => {
-          delete mediaCallsRef.current[targetPeerId];
-        });
-      } catch (err) {
-        console.warn('Call error to', targetPeerId, err);
       }
     },
-    [userName, setupDataConnection, attachRemoteStream]
+    [peerId, getOrCreatePeerConnection, sendSignaling]
   );
 
-  // Connect to room using PeerJS and deterministic slots
+  // Poll signaling API
+  const pollSignaling = useCallback(async () => {
+    if (!roomId || !peerId) return;
+
+    try {
+      const res = await fetch(
+        `/api/signaling?roomId=${encodeURIComponent(roomId)}&peerId=${encodeURIComponent(
+          peerId
+        )}&since=${lastSyncTimestampRef.current}`
+      );
+      if (!res.ok) return;
+
+      const data = await res.json();
+      if (!data.roomExists) return;
+
+      lastSyncTimestampRef.current = data.serverTime;
+
+      // Update peer list from server
+      if (data.peers) {
+        setPeers((prev) => {
+          const updated = { ...prev };
+          Object.entries(data.peers).forEach(([id, p]: [string, any]) => {
+            if (id !== peerId) {
+              updated[id] = { ...updated[id], ...p };
+            }
+          });
+          return updated;
+        });
+      }
+
+      // Process new signaling messages
+      const msgs: SignalingMessage[] = data.messages || [];
+      for (const msg of msgs) {
+        await handleIncomingMessage(msg);
+      }
+    } catch {
+      // ignore
+    }
+  }, [roomId, peerId, handleIncomingMessage]);
+
+  // Main Room Lifecycle
   useEffect(() => {
     if (!roomId) return;
 
     let isMounted = true;
     const cleanRoom = roomId.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-    // Setup local BroadcastChannel for instant local tab discovery
+    // 1. Setup local BroadcastChannel
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       const bc = new BroadcastChannel(`vortex_bcast_${cleanRoom}`);
       broadcastChannelRef.current = bc;
       bc.onmessage = (e) => {
-        handleDataMessage(e.data);
+        handleIncomingMessage(e.data);
       };
     }
 
-    async function initializeVoiceEngine() {
-      setConnectionStatus('connecting');
-      const stream = await initMicrophone(selectedDeviceId);
+    async function startVoiceRoom() {
+      await initMicrophone(selectedDeviceId);
       if (!isMounted) return;
 
-      // Dynamically import PeerJS (100% safe in Next.js App Router)
-      const { default: Peer } = await import('peerjs');
+      setConnected(true);
+      playJoinSound();
 
-      // Attempt to bind slot s0, s1, s2... up to s7
-      let currentSlot = 0;
-      let activePeer: any = null;
+      // Announce join
+      await sendSignaling('join', {
+        name: userName,
+        avatarSeed: peerId,
+        isMuted: false,
+        isDeafened: false,
+      });
 
-      const tryBindSlot = (slot: number) => {
-        if (!isMounted) return;
-        const targetId = `vortex_${cleanRoom}_s${slot}`;
-
-        const peer = new Peer(targetId, {
-          debug: 1,
-          config: ICE_CONFIG,
-        });
-
-        peer.on('open', (assignedId) => {
-          if (!isMounted) {
-            peer.destroy();
-            return;
-          }
-          activePeer = peer;
-          peerInstanceRef.current = peer;
-          setPeerId(assignedId);
-          setSlotIndex(slot);
-          setConnected(true);
-          setConnectionStatus('connected');
-          playJoinSound();
-
-          // Listen for incoming calls
-          peer.on('call', (call) => {
-            const remId = call.peer;
-            mediaCallsRef.current[remId] = call;
-
-            // Always answer with local audio stream
-            const outStream = localStreamRef.current || stream || new MediaStream();
-            call.answer(outStream);
-
-            call.on('stream', (remStream: MediaStream) => {
-              attachRemoteStream(remId, remStream);
-              setPeers((prev) => ({
-                ...prev,
-                [remId]: {
-                  id: remId,
-                  name: call.metadata?.name || `Squadmate_${remId.slice(-4)}`,
-                  avatarSeed: remId,
-                  isMuted: false,
-                  isDeafened: false,
-                  isSpeaking: false,
-                  audioLevel: 0,
-                  pingMs: 16,
-                  joinedAt: Date.now(),
-                  hasAudio: true,
-                },
-              }));
-            });
-
-            call.on('close', () => {
-              delete mediaCallsRef.current[remId];
-              delete remoteGainNodesRef.current[remId];
-              delete remoteAnalysersRef.current[remId];
-              setRemoteStreams((prev) => {
-                const next = { ...prev };
-                delete next[remId];
-                return next;
-              });
-            });
-          });
-
-          // Listen for incoming data connections
-          peer.on('connection', (conn) => {
-            setupDataConnection(conn);
-          });
-
-          // Now call all other possible slots in room (0..MAX_SLOTS)
-          for (let s = 0; s < MAX_SLOTS; s++) {
-            if (s !== slot) {
-              const otherSlotId = `vortex_${cleanRoom}_s${s}`;
-              if (stream) {
-                callSlot(otherSlotId, stream);
-              }
-            }
-          }
-
-          // Broadcast announcement locally
-          broadcastData('announce', {
-            id: assignedId,
-            name: userName,
-            avatarSeed: assignedId,
-            isMuted,
-            isDeafened,
-            isSpeaking: false,
-            audioLevel: 0,
-            pingMs: 14,
-            joinedAt: Date.now(),
-          });
-        });
-
-        peer.on('error', (err: any) => {
-          // If ID is already taken by another squadmate in this room, try next slot!
-          if (err.type === 'unavailable-id') {
-            peer.destroy();
-            if (slot + 1 < MAX_SLOTS) {
-              currentSlot = slot + 1;
-              tryBindSlot(currentSlot);
-            } else {
-              setConnectionStatus('error');
-              console.warn('All 8 room slots are occupied');
-            }
-          } else {
-            console.warn('PeerJS error:', err);
-          }
-        });
-      };
-
-      tryBindSlot(currentSlot);
-
-      // Periodic presence heartbeat and slot reconnection
-      heartbeatTimerRef.current = setInterval(() => {
-        if (!peerInstanceRef.current || peerInstanceRef.current.destroyed) return;
-
-        // Try calling any missing slots
-        if (localStreamRef.current) {
-          for (let s = 0; s < MAX_SLOTS; s++) {
-            if (s !== currentSlot) {
-              const targetId = `vortex_${cleanRoom}_s${s}`;
-              if (!mediaCallsRef.current[targetId]) {
-                callSlot(targetId, localStreamRef.current);
-              }
-            }
-          }
-        }
-      }, 5000);
+      // Start signaling poll
+      pollSignaling();
+      pollingTimerRef.current = setInterval(pollSignaling, 1000);
     }
 
-    initializeVoiceEngine();
+    startVoiceRoom();
 
     return () => {
       isMounted = false;
-      if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+      if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
 
-      // Send leave message
-      broadcastData('leave', { id: peerInstanceRef.current?.id || '' });
+      sendSignaling('leave', { peerId });
 
       if (broadcastChannelRef.current) {
         broadcastChannelRef.current.close();
         broadcastChannelRef.current = null;
       }
 
-      // Cleanup calls and conns
-      Object.values(mediaCallsRef.current).forEach((call: any) => call.close?.());
-      mediaCallsRef.current = {};
-      Object.values(dataConnsRef.current).forEach((conn: any) => conn.close?.());
-      dataConnsRef.current = {};
-
-      if (peerInstanceRef.current) {
-        peerInstanceRef.current.destroy();
-        peerInstanceRef.current = null;
-      }
+      Object.values(peerConnectionsRef.current).forEach((pc) => pc.close());
+      peerConnectionsRef.current = {};
+      remoteGainNodesRef.current = {};
+      remoteAnalysersRef.current = {};
 
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -576,28 +520,43 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
     };
   }, [roomId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Continuous Audio Level Analysis loop (Local & Remote peers)
+  // Local & Remote Audio Meter Animation Loop
   useEffect(() => {
     const dataArray = new Uint8Array(64);
     const audioCtx = getAudioContext();
+    let localAnalyser: AnalyserNode | null = null;
+    let localSource: MediaStreamAudioSourceNode | null = null;
 
-    const checkLevels = () => {
-      // 1. Check Local Mic Level
-      if (localStreamRef.current && !isMuted && (!isPttMode || isPttActive)) {
-        const audioTrack = localStreamRef.current.getAudioTracks()[0];
-        if (audioTrack && audioTrack.enabled) {
-          // Approximate RMS from Web Audio or random jitter when unmuted
-          let norm = 0;
-          if (audioCtx && audioCtx.state === 'running') {
-            // Analyser calculation
-            const analyser = audioCtx.createAnalyser();
-            analyser.fftSize = 64;
-            // Level is alive
-          }
+    if (audioCtx && localStreamRef.current) {
+      try {
+        localSource = audioCtx.createMediaStreamSource(localStreamRef.current);
+        localAnalyser = audioCtx.createAnalyser();
+        localAnalyser.fftSize = 64;
+        localSource.connect(localAnalyser);
+      } catch {
+        // ignore
+      }
+    }
+
+    const checkAudioLevels = () => {
+      // 1. Local mic level
+      if (localAnalyser && !isMuted && (!isPttMode || isPttActive)) {
+        localAnalyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          sum += dataArray[i];
         }
+        const avg = sum / dataArray.length;
+        const norm = Math.min(100, Math.round((avg / 128) * 100));
+        setAudioLevel(norm);
+        const speaking = norm > noiseGateThreshold;
+        setIsSpeaking(speaking);
+      } else {
+        setAudioLevel(0);
+        setIsSpeaking(false);
       }
 
-      // 2. Measure Remote Peers Analysers
+      // 2. Remote peers level
       Object.entries(remoteAnalysersRef.current).forEach(([rId, analyser]) => {
         analyser.getByteFrequencyData(dataArray);
         let sum = 0;
@@ -621,72 +580,22 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
         });
       });
 
-      animFrameRef.current = requestAnimationFrame(checkLevels);
+      animFrameRef.current = requestAnimationFrame(checkAudioLevels);
     };
 
-    animFrameRef.current = requestAnimationFrame(checkLevels);
+    animFrameRef.current = requestAnimationFrame(checkAudioLevels);
 
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    };
-  }, [isMuted, isPttMode, isPttActive]);
-
-  // Audio level meter loop for local user
-  useEffect(() => {
-    const audioCtx = getAudioContext();
-    if (!audioCtx) return;
-
-    let analyserNode: AnalyserNode | null = null;
-    let sourceNode: MediaStreamAudioSourceNode | null = null;
-    const freqData = new Uint8Array(32);
-
-    if (localStreamRef.current) {
-      try {
-        sourceNode = audioCtx.createMediaStreamSource(localStreamRef.current);
-        analyserNode = audioCtx.createAnalyser();
-        analyserNode.fftSize = 64;
-        sourceNode.connect(analyserNode);
-      } catch {
-        // ignore
-      }
-    }
-
-    let interval = setInterval(() => {
-      if (analyserNode && !isMuted && (!isPttMode || isPttActive)) {
-        analyserNode.getByteFrequencyData(freqData);
-        let sum = 0;
-        for (let i = 0; i < freqData.length; i++) {
-          sum += freqData[i];
-        }
-        const avg = sum / freqData.length;
-        const norm = Math.min(100, Math.round((avg / 128) * 100));
-        setAudioLevel(norm);
-        const speaking = norm > noiseGateThreshold;
-        setIsSpeaking(speaking);
-
-        // Broadcast presence when speaking state changes
-        broadcastData('presence', {
-          id: peerInstanceRef.current?.id || '',
-          isSpeaking: speaking,
-          audioLevel: norm,
-        });
-      } else {
-        setAudioLevel(0);
-        setIsSpeaking(false);
-      }
-    }, 100);
-
-    return () => {
-      clearInterval(interval);
-      if (sourceNode && analyserNode) {
+      if (localSource && localAnalyser) {
         try {
-          sourceNode.disconnect();
+          localSource.disconnect();
         } catch {
           // ignore
         }
       }
     };
-  }, [isMuted, isPttMode, isPttActive, noiseGateThreshold, broadcastData]);
+  }, [isMuted, isPttMode, isPttActive, noiseGateThreshold]);
 
   // Toggle Mute
   const toggleMute = useCallback(() => {
@@ -700,8 +609,7 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
         });
       }
 
-      broadcastData('presence', {
-        id: peerInstanceRef.current?.id || '',
+      sendSignaling('presence-update', {
         isMuted: next,
         isSpeaking: false,
         audioLevel: 0,
@@ -709,7 +617,7 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
 
       return next;
     });
-  }, [isPttMode, isPttActive, broadcastData]);
+  }, [isPttMode, isPttActive, sendSignaling]);
 
   // Toggle Deafen
   const toggleDeafen = useCallback(() => {
@@ -721,26 +629,24 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
         toggleMute();
       }
 
-      // Mute/unmute all remote gain nodes
       Object.entries(remoteGainNodesRef.current).forEach(([rId, gainNode]) => {
         const vol = peerVolumes[rId] ?? 1.0;
         gainNode.gain.value = next ? 0 : vol;
       });
 
-      broadcastData('presence', {
-        id: peerInstanceRef.current?.id || '',
+      sendSignaling('presence-update', {
         isDeafened: next,
       });
 
       return next;
     });
-  }, [isMuted, toggleMute, peerVolumes, broadcastData]);
+  }, [isMuted, toggleMute, peerVolumes, sendSignaling]);
 
-  // Individual Remote Peer Volume Adjustment
+  // Volume adjustment per peer
   const setPeerVolume = useCallback(
-    (remotePeerId: string, vol: number) => {
-      setPeerVolumes((prev) => ({ ...prev, [remotePeerId]: vol }));
-      const gainNode = remoteGainNodesRef.current[remotePeerId];
+    (remId: string, vol: number) => {
+      setPeerVolumes((prev) => ({ ...prev, [remId]: vol }));
+      const gainNode = remoteGainNodesRef.current[remId];
       if (gainNode) {
         gainNode.gain.value = isDeafened ? 0 : Math.min(1.5, Math.max(0, vol));
       }
@@ -753,9 +659,9 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
     (text: string, quickCallout: boolean = false, isAi: boolean = false) => {
       const chatMsg: ChatMessage = {
         id: `chat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        senderId: isAi ? 'apex-9' : peerInstanceRef.current?.id || 'self',
+        senderId: isAi ? 'apex-9' : peerId,
         senderName: isAi ? 'APEX-9 // AI COACH' : userName,
-        avatarSeed: isAi ? 'ai_apex' : peerInstanceRef.current?.id || 'self',
+        avatarSeed: isAi ? 'ai_apex' : peerId,
         text,
         timestamp: Date.now(),
         quickCallout,
@@ -763,17 +669,17 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
       };
 
       setMessages((prev) => [...prev, chatMsg]);
-      broadcastData('chat', chatMsg);
+      sendSignaling('chat-message', chatMsg);
     },
-    [userName, broadcastData]
+    [peerId, userName, sendSignaling]
   );
 
   // Broadcast soundboard SFX
   const broadcastSfx = useCallback(
     (sfxId: string) => {
-      broadcastData('sfx', { sfxId });
+      sendSignaling('sfx-trigger', { sfxId });
     },
-    [broadcastData]
+    [sendSignaling]
   );
 
   // Push to talk listeners (Space key)
@@ -827,9 +733,7 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
 
   return {
     peerId,
-    slotIndex,
     connected,
-    connectionStatus,
     isMuted,
     isDeafened,
     isPttMode,
