@@ -8,7 +8,7 @@ interface AudioVisualizerProps {
   isMuted: boolean;
   barsCount?: number;
   height?: number;
-  colorScheme?: 'cyan' | 'magenta' | 'lime';
+  colorScheme?: 'red' | 'crimson' | 'lime' | 'amber';
   className?: string;
 }
 
@@ -18,7 +18,7 @@ export function AudioVisualizer({
   isMuted,
   barsCount = 14,
   height = 24,
-  colorScheme = 'cyan',
+  colorScheme = 'red',
   className = '',
 }: AudioVisualizerProps) {
   // Purely derive bar heights from audioLevel & speaking status
@@ -39,16 +39,18 @@ export function AudioVisualizer({
   }, [audioLevel, isSpeaking, isMuted, barsCount]);
 
   const getColorClasses = () => {
-    if (isMuted) return 'bg-rose-500/40';
-    if (!isSpeaking) return 'bg-slate-700/60';
+    if (isMuted) return 'bg-red-950/60 border-t border-red-800';
+    if (!isSpeaking) return 'bg-zinc-800/80';
     switch (colorScheme) {
-      case 'magenta':
-        return 'bg-gradient-to-t from-pink-600 to-fuchsia-400 shadow-[0_0_8px_rgba(255,0,127,0.7)]';
       case 'lime':
-        return 'bg-gradient-to-t from-lime-600 to-emerald-400 shadow-[0_0_8px_rgba(57,255,20,0.8)]';
-      case 'cyan':
+        return 'bg-gradient-to-t from-emerald-600 to-lime-400 shadow-[0_0_10px_rgba(57,255,20,0.8)]';
+      case 'amber':
+        return 'bg-gradient-to-t from-orange-600 to-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.8)]';
+      case 'crimson':
+        return 'bg-gradient-to-t from-rose-700 via-red-600 to-rose-400 shadow-[0_0_12px_rgba(244,63,94,0.8)]';
+      case 'red':
       default:
-        return 'bg-gradient-to-t from-cyan-600 to-teal-300 shadow-[0_0_8px_rgba(0,240,255,0.7)]';
+        return 'bg-gradient-to-t from-red-700 via-red-500 to-rose-400 shadow-[0_0_12px_rgba(255,0,55,0.85)]';
     }
   };
 

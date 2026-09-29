@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useVoiceRoom } from '@/hooks/useVoiceRoom';
 import { GamerLogo } from '@/components/GamerLogo';
 import { PeerCard } from '@/components/PeerCard';
@@ -27,15 +27,16 @@ import {
   Gamepad2,
   AlertCircle,
   Sparkles,
+  Flame,
 } from 'lucide-react';
 
 const POPULAR_GAMES = [
-  { name: 'CS2', color: 'from-amber-500 to-orange-600' },
-  { name: 'Valorant', color: 'from-rose-500 to-red-600' },
-  { name: 'Warzone', color: 'from-emerald-500 to-teal-700' },
-  { name: 'Fortnite', color: 'from-blue-500 to-indigo-600' },
-  { name: 'LoL', color: 'from-cyan-500 to-blue-600' },
-  { name: 'Free Fire', color: 'from-yellow-500 to-amber-600' },
+  { name: 'CS2', color: 'from-amber-600 to-red-700' },
+  { name: 'Valorant', color: 'from-red-600 to-rose-800' },
+  { name: 'Warzone', color: 'from-red-700 to-zinc-900' },
+  { name: 'Fortnite', color: 'from-rose-600 to-red-800' },
+  { name: 'LoL', color: 'from-red-600 to-orange-700' },
+  { name: 'Free Fire', color: 'from-amber-600 to-red-600' },
 ];
 
 export default function VortexCommsApp() {
@@ -64,10 +65,10 @@ export default function VortexCommsApp() {
     if (typeof window !== 'undefined') {
       return (
         localStorage.getItem('vortex_username') ||
-        `Gamer_${Math.floor(1000 + Math.random() * 9000)}`
+        `Reaper_${Math.floor(1000 + Math.random() * 9000)}`
       );
     }
-    return 'Gamer_777';
+    return 'Reaper_777';
   });
 
   // Modal controls
@@ -142,9 +143,9 @@ export default function VortexCommsApp() {
   const squadNames = [userName, ...peerList.map((p) => p.name)];
 
   return (
-    <main className="min-h-screen flex flex-col justify-between text-slate-100 bg-[#06080d] selection:bg-cyan-500 selection:text-black">
-      {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-40 w-full border-b border-cyan-500/20 bg-slate-950/90 backdrop-blur-xl px-4 py-3">
+    <main className="min-h-screen flex flex-col justify-between text-zinc-100 bg-[#050608] selection:bg-red-600 selection:text-white">
+      {/* Top Navigation Bar in Red & Black */}
+      <header className="sticky top-0 z-40 w-full border-b border-red-950/70 bg-black/90 backdrop-blur-xl px-4 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
           <GamerLogo size="md" glow={true} />
 
@@ -152,16 +153,16 @@ export default function VortexCommsApp() {
           {inRoom && (
             <div className="flex items-center gap-2 sm:gap-3">
               {/* Room Code Badge */}
-              <div className="flex items-center bg-slate-900 border border-cyan-500/40 rounded-xl px-2.5 py-1.5 shadow-sm">
-                <span className="text-[10px] uppercase font-mono text-slate-400 mr-2 hidden sm:inline">
+              <div className="flex items-center bg-zinc-950 border border-red-900/60 rounded-xl px-2.5 py-1.5 shadow-sm">
+                <span className="text-[10px] uppercase font-mono text-zinc-400 mr-2 hidden sm:inline">
                   SALA:
                 </span>
-                <span className="font-mono font-black text-sm text-cyan-400 tracking-widest mr-2">
+                <span className="font-mono font-black text-sm text-red-500 tracking-widest mr-2">
                   #{roomId}
                 </span>
                 <button
                   onClick={handleCopyLink}
-                  className="p-1 rounded bg-slate-800 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-300 transition-colors"
+                  className="p-1 rounded bg-zinc-900 hover:bg-red-950 text-zinc-300 hover:text-red-400 transition-colors"
                   title="Copiar Link de Convite"
                 >
                   {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -169,16 +170,16 @@ export default function VortexCommsApp() {
               </div>
 
               {/* Game Tag */}
-              <span className="hidden md:flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300">
-                <Gamepad2 className="w-3.5 h-3.5 text-fuchsia-400" />
+              <span className="hidden md:flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-900 text-zinc-300">
+                <Gamepad2 className="w-3.5 h-3.5 text-red-500" />
                 {selectedGame}
               </span>
 
               {/* Squad count and slot */}
-              <span className="flex items-center gap-1.5 text-xs font-mono px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-emerald-400">
-                <Users className="w-3.5 h-3.5" />
+              <span className="flex items-center gap-1.5 text-xs font-mono px-2.5 py-1.5 rounded-xl bg-zinc-950 border border-red-950/80 text-red-400">
+                <Users className="w-3.5 h-3.5 text-red-500" />
                 <span>{peerList.length + 1} ONLINE</span>
-                <span className="text-[10px] text-cyan-400 font-bold bg-cyan-950 px-1 rounded border border-cyan-800 hidden sm:inline">
+                <span className="text-[10px] text-red-400 font-bold bg-red-950 px-1.5 py-0.5 rounded border border-red-900 hidden sm:inline">
                   SLOT #{voice.slotIndex + 1}
                 </span>
               </span>
@@ -190,17 +191,17 @@ export default function VortexCommsApp() {
             {inRoom && (
               <button
                 onClick={voice.handleUnlockAudio}
-                className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-emerald-400 transition-colors hidden sm:flex items-center gap-1.5 text-xs font-mono"
+                className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-red-400 transition-colors hidden sm:flex items-center gap-1.5 text-xs font-mono"
                 title="Desbloquear / Testar Saída de Som"
               >
-                <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                <Volume2 className="w-3.5 h-3.5 text-red-500" />
                 <span className="hidden md:inline">Som OK</span>
               </button>
             )}
 
             <button
               onClick={() => setShowSettings(true)}
-              className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-cyan-400 transition-colors"
+              className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-red-400 transition-colors"
               title="Configurações de Áudio e Perfil"
             >
               <Settings className="w-4 h-4" />
@@ -209,7 +210,7 @@ export default function VortexCommsApp() {
             {inRoom && (
               <button
                 onClick={handleLeaveRoom}
-                className="px-3 py-1.5 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-500/50 text-rose-300 text-xs font-bold transition-colors flex items-center gap-1.5"
+                className="px-3 py-1.5 rounded-xl bg-red-950/80 hover:bg-red-900 border border-red-600/50 text-red-200 text-xs font-bold transition-colors flex items-center gap-1.5 shadow-[0_0_12px_rgba(255,0,55,0.3)]"
                 title="Desconectar da Sala"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -223,15 +224,15 @@ export default function VortexCommsApp() {
       {/* Mic Permission Alert if denied */}
       {voice.micPermissionError && (
         <div className="max-w-4xl mx-auto w-full px-4 mt-4">
-          <div className="p-3.5 rounded-xl bg-rose-950/90 border border-rose-500/80 text-rose-200 text-xs flex items-center gap-2.5 shadow-lg">
-            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+          <div className="p-3.5 rounded-xl bg-red-950/95 border border-red-500 text-red-200 text-xs flex items-center gap-2.5 shadow-lg">
+            <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
             <div className="flex-1">
               <span className="font-bold">Aviso de Microfone:</span> {voice.micPermissionError}.
               Por favor, clique no ícone de cadeado no topo da barra do navegador e permita o microfone para que seus amigos te escutem.
             </div>
             <button
               onClick={() => voice.initMicrophone()}
-              className="px-3 py-1 bg-rose-800 hover:bg-rose-700 text-white rounded font-bold text-xs shrink-0"
+              className="px-3 py-1 bg-red-800 hover:bg-red-700 text-white rounded font-bold text-xs shrink-0"
             >
               Tentar Novamente
             </button>
@@ -242,17 +243,17 @@ export default function VortexCommsApp() {
       {/* Autoplay Audio Blocked Warning Banner */}
       {voice.audioBlocked && (
         <div className="max-w-4xl mx-auto w-full px-4 mt-4 animate-bounce">
-          <div className="p-3.5 rounded-xl bg-amber-950/95 border-2 border-amber-400 text-amber-200 text-xs flex flex-wrap items-center justify-between gap-3 shadow-[0_0_20px_rgba(251,191,36,0.5)]">
+          <div className="p-3.5 rounded-xl bg-red-950/95 border-2 border-red-500 text-red-200 text-xs flex flex-wrap items-center justify-between gap-3 shadow-[0_0_25px_rgba(255,0,55,0.6)]">
             <div className="flex items-center gap-2.5">
-              <Volume2 className="w-5 h-5 text-amber-300 shrink-0" />
+              <Volume2 className="w-5 h-5 text-red-400 shrink-0" />
               <div>
-                <span className="font-black text-amber-100 uppercase">ÁUDIO BLOQUEADO PELO NAVEGADOR:</span>{' '}
+                <span className="font-black text-red-100 uppercase">ÁUDIO BLOQUEADO PELO NAVEGADOR:</span>{' '}
                 Clique no botão ao lado para desbloquear a saída de som e escutar seus amigos na chamada.
               </div>
             </div>
             <button
               onClick={voice.handleUnlockAudio}
-              className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded-lg text-xs uppercase shadow-md transition-all active:scale-95"
+              className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-black rounded-lg text-xs uppercase shadow-md transition-all active:scale-95"
             >
               🔊 ATIVAR SOM DO SQUAD
             </button>
@@ -267,29 +268,29 @@ export default function VortexCommsApp() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
             {/* Left Column: Aggressive Gamer Headline & Quick Join */}
             <div className="lg:col-span-7 space-y-6">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 text-xs font-mono">
-                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-                WEBRTC P2P ULTRA-LOW LATENCY // VOZ GAMER
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/80 border border-red-600/40 text-red-400 text-xs font-mono">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                WEBRTC P2P ULTRA-LOW LATENCY // REDLINE COMMS
               </div>
 
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black uppercase tracking-tight text-white leading-none">
                 COMUNICAÇÃO{' '}
-                <span className="bg-gradient-to-r from-cyan-400 via-fuchsia-400 to-pink-500 bg-clip-text text-transparent italic">
+                <span className="bg-gradient-to-r from-red-500 via-rose-500 to-amber-500 bg-clip-text text-transparent italic">
                   SEM DELAY
                 </span>{' '}
                 PRO SEU ESQUADRÃO.
               </h1>
 
-              <p className="text-slate-300 text-sm sm:text-base leading-relaxed max-w-xl">
+              <p className="text-zinc-400 text-sm sm:text-base leading-relaxed max-w-xl">
                 Crie sua call de voz com link privado para jogar com os amigos no PC ou Celular.
-                Áudio direto peer-to-peer, visualizador neon de fala, soundboard sincronizado e
+                Áudio direto peer-to-peer, visualizador vermelho de fala, soundboard sincronizado e
                 o bot tático de IA APEX-9.
               </p>
 
               {/* Game quick selector */}
               <div>
-                <label className="block text-xs font-mono uppercase text-slate-400 mb-2 flex items-center gap-1.5">
-                  <Gamepad2 className="w-3.5 h-3.5 text-cyan-400" />
+                <label className="block text-xs font-mono uppercase text-zinc-400 mb-2 flex items-center gap-1.5">
+                  <Gamepad2 className="w-3.5 h-3.5 text-red-500" />
                   Qual jogo vocês vão jogar hoje?
                 </label>
                 <div className="flex flex-wrap gap-2">
@@ -300,8 +301,8 @@ export default function VortexCommsApp() {
                       onClick={() => setSelectedGame(game.name)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                         selectedGame === game.name
-                          ? 'bg-cyan-500 text-slate-950 shadow-[0_0_12px_rgba(0,240,255,0.6)] scale-105'
-                          : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                          ? 'bg-red-600 text-white shadow-[0_0_15px_rgba(255,0,55,0.7)] scale-105'
+                          : 'bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white hover:border-red-900'
                       }`}
                     >
                       {game.name}
@@ -314,9 +315,9 @@ export default function VortexCommsApp() {
               <div className="pt-2 flex flex-col sm:flex-row gap-4">
                 <button
                   onClick={handleCreateRoom}
-                  className="flex-1 py-4 px-6 rounded-2xl bg-gradient-to-r from-cyan-500 via-blue-600 to-fuchsia-600 hover:from-cyan-400 hover:to-fuchsia-500 text-slate-950 font-black tracking-wider uppercase text-sm sm:text-base shadow-[0_0_25px_rgba(0,240,255,0.4)] transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
+                  className="flex-1 py-4 px-6 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 text-white font-black tracking-wider uppercase text-sm sm:text-base shadow-[0_0_30px_rgba(255,0,55,0.45)] transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 border border-red-500/30"
                 >
-                  <Zap className="w-5 h-5 text-slate-950" />
+                  <Zap className="w-5 h-5 text-white" />
                   CRIAR SALA DE VOZ PRIVADA
                 </button>
               </div>
@@ -329,43 +330,43 @@ export default function VortexCommsApp() {
                   onChange={(e) => setJoinInputCode(e.target.value)}
                   placeholder="DIGITE O CÓDIGO DA SALA (EX: ALPHA)"
                   maxLength={10}
-                  className="flex-1 px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-xs sm:text-sm font-mono uppercase text-white placeholder-slate-600 focus:outline-none focus:border-cyan-400"
+                  className="flex-1 px-4 py-3 rounded-xl bg-black border border-zinc-800 text-xs sm:text-sm font-mono uppercase text-white placeholder-zinc-600 focus:outline-none focus:border-red-500"
                 />
                 <button
                   type="submit"
                   disabled={!joinInputCode.trim()}
-                  className="px-5 py-3 rounded-xl bg-slate-800 hover:bg-cyan-500 hover:text-slate-950 text-white font-bold text-xs sm:text-sm uppercase transition-all disabled:opacity-40"
+                  className="px-5 py-3 rounded-xl bg-zinc-900 hover:bg-red-600 hover:text-white text-zinc-200 font-bold text-xs sm:text-sm uppercase transition-all disabled:opacity-40 border border-zinc-800 hover:border-red-500"
                 >
                   Entrar
                 </button>
               </form>
 
               {/* Testing Tip for multi-tab */}
-              <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800/80 text-slate-400 text-xs flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
+              <div className="p-3 rounded-xl bg-zinc-950 border border-red-950 text-zinc-400 text-xs flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-red-500 shrink-0" />
                 <span>
                   <strong>Dica de Teste:</strong> Você pode abrir essa mesma página em{' '}
-                  <span className="text-cyan-300 font-semibold">duas abas diferentes</span> ou no celular para
+                  <span className="text-red-400 font-semibold">duas abas diferentes</span> ou no celular para
                   testar a transmissão de voz em tempo real!
                 </span>
               </div>
             </div>
 
-            {/* Right Column: Tactical Mic HUD & Gamer Profile Preview */}
+            {/* Right Column: Tactical Mic HUD & Gamer Profile Preview in Red & Black */}
             <div className="lg:col-span-5">
-              <div className="relative p-6 rounded-2xl bg-gradient-to-b from-slate-900 to-slate-950 border border-cyan-500/30 shadow-[0_0_40px_rgba(0,240,255,0.15)] space-y-5">
+              <div className="relative p-6 rounded-2xl bg-gradient-to-b from-zinc-950 to-black border border-red-900/50 shadow-[0_0_40px_rgba(255,0,55,0.15)] space-y-5">
                 {/* Decorative top badge */}
-                <div className="flex items-center justify-between text-xs pb-3 border-b border-slate-800">
-                  <div className="flex items-center gap-2 font-mono text-cyan-400">
+                <div className="flex items-center justify-between text-xs pb-3 border-b border-red-950/70">
+                  <div className="flex items-center gap-2 font-mono text-red-500">
                     <Radio className="w-3.5 h-3.5 animate-pulse" />
                     <span>AUDIO COCKPIT // TEST</span>
                   </div>
-                  <span className="text-[10px] font-mono text-slate-500">READY TO DROP</span>
+                  <span className="text-[10px] font-mono text-zinc-500">READY TO DROP</span>
                 </div>
 
                 {/* Nickname input */}
                 <div>
-                  <label className="block text-xs font-mono uppercase text-slate-400 mb-1.5">
+                  <label className="block text-xs font-mono uppercase text-zinc-400 mb-1.5">
                     Seu Nickname no Jogo
                   </label>
                   <input
@@ -373,54 +374,54 @@ export default function VortexCommsApp() {
                     value={userName}
                     onChange={(e) => handleUpdateUserName(e.target.value)}
                     maxLength={20}
-                    className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-sm font-bold text-white focus:outline-none focus:border-cyan-400 shadow-inner"
+                    className="w-full px-4 py-2.5 rounded-xl bg-black border border-zinc-800 text-sm font-bold text-white focus:outline-none focus:border-red-500 shadow-inner"
                   />
                 </div>
 
                 {/* Live Mic Wave & Level */}
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
-                  <div className="flex items-center justify-between text-xs text-slate-300">
+                <div className="p-4 rounded-xl bg-black border border-red-950 space-y-3">
+                  <div className="flex items-center justify-between text-xs text-zinc-300">
                     <span className="flex items-center gap-1.5 font-bold">
-                      <Volume2 className="w-4 h-4 text-emerald-400" />
+                      <Volume2 className="w-4 h-4 text-red-500" />
                       Sensibilidade do seu Microfone
                     </span>
-                    <span className="font-mono text-xs text-emerald-400 font-bold">
+                    <span className="font-mono text-xs text-red-500 font-bold">
                       {voice.audioLevel}% RMS
                     </span>
                   </div>
 
-                  <div className="bg-slate-900 p-3 rounded-lg border border-slate-800">
+                  <div className="bg-zinc-950 p-3 rounded-lg border border-zinc-900">
                     <AudioVisualizer
                       audioLevel={voice.audioLevel}
                       isSpeaking={voice.isSpeaking}
                       isMuted={voice.isMuted}
                       barsCount={28}
                       height={32}
-                      colorScheme="lime"
+                      colorScheme="red"
                     />
                   </div>
 
-                  <p className="text-[11px] text-slate-400 leading-snug">
-                    Fale algo no microfone para ver as ondas verdes reagirem em tempo real.
+                  <p className="text-[11px] text-zinc-400 leading-snug">
+                    Fale algo no microfone para ver as ondas vermelhas reagirem em tempo real.
                   </p>
                 </div>
 
                 {/* Feature Pills */}
-                <div className="grid grid-cols-2 gap-2 text-xs font-mono text-slate-300">
-                  <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-cyan-400" />
+                <div className="grid grid-cols-2 gap-2 text-xs font-mono text-zinc-300">
+                  <div className="p-2.5 rounded-lg bg-black border border-zinc-900 flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-red-500" />
                     <span>WebRTC P2P</span>
                   </div>
-                  <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-fuchsia-400" />
+                  <div className="p-2.5 rounded-lg bg-black border border-zinc-900 flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-rose-500" />
                     <span>Soundboard SFX</span>
                   </div>
-                  <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center gap-2">
-                    <Bot className="w-4 h-4 text-amber-400" />
+                  <div className="p-2.5 rounded-lg bg-black border border-zinc-900 flex items-center gap-2">
+                    <Bot className="w-4 h-4 text-amber-500" />
                     <span>AI Coach Gemini</span>
                   </div>
-                  <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center gap-2">
-                    <Users className="w-4 h-4 text-emerald-400" />
+                  <div className="p-2.5 rounded-lg bg-black border border-zinc-900 flex items-center gap-2">
+                    <Flame className="w-4 h-4 text-red-400" />
                     <span>Crossplay PC/Mobile</span>
                   </div>
                 </div>
@@ -429,32 +430,32 @@ export default function VortexCommsApp() {
           </div>
         </div>
       ) : (
-        /* ACTIVE SQUAD ROOM VIEW */
+        /* ACTIVE SQUAD ROOM VIEW in Red & Black */
         <div className="flex-1 max-w-7xl mx-auto w-full px-4 py-5 flex flex-col gap-4">
           {/* Room Top Subheader / Invite bar */}
-          <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-cyan-500/30 flex flex-wrap items-center justify-between gap-3 shadow-md">
+          <div className="p-3.5 rounded-2xl bg-black/85 border border-red-900/50 flex flex-wrap items-center justify-between gap-3 shadow-md">
             <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-cyan-950/90 text-cyan-400 border border-cyan-500/40">
+              <div className="p-2 rounded-xl bg-red-950/90 text-red-500 border border-red-600/40">
                 <Users className="w-5 h-5" />
               </div>
               <div>
                 <h2 className="text-sm font-black tracking-wide text-white uppercase flex items-center gap-2">
                   ESQUADRÃO #{roomId}
-                  <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950 px-2 py-0.5 rounded border border-cyan-500/30">
+                  <span className="text-[10px] font-mono text-red-400 bg-red-950 px-2 py-0.5 rounded border border-red-800">
                     {selectedGame}
                   </span>
                 </h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-zinc-400">
                   Compartilhe o código ou link com seus amigos para eles entrarem no canal de voz.
                 </p>
               </div>
             </div>
 
-            {/* Invite Button with Copy */}
+            {/* Invite Button with Copy in Red */}
             <div className="flex items-center gap-2">
               <button
                 onClick={handleCopyLink}
-                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs tracking-wider uppercase transition-all shadow-[0_0_15px_rgba(0,240,255,0.3)] flex items-center gap-2 active:scale-95"
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white font-bold text-xs tracking-wider uppercase transition-all shadow-[0_0_18px_rgba(255,0,55,0.4)] flex items-center gap-2 active:scale-95 border border-red-500/40"
               >
                 {copiedLink ? (
                   <>
@@ -471,7 +472,7 @@ export default function VortexCommsApp() {
 
               <button
                 onClick={() => setShowChatMobile(!showChatMobile)}
-                className="lg:hidden px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 text-xs font-bold"
+                className="lg:hidden px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-300 text-xs font-bold"
               >
                 Chat ({voice.messages.length})
               </button>
@@ -517,15 +518,15 @@ export default function VortexCommsApp() {
                 {/* Empty Slot Card (+ Convidar Amigo) */}
                 <div
                   onClick={handleCopyLink}
-                  className="flex flex-col items-center justify-center p-6 rounded-xl border border-dashed border-slate-800 hover:border-cyan-500/50 hover:bg-slate-900/40 text-slate-500 hover:text-cyan-300 transition-all cursor-pointer group min-h-[220px]"
+                  className="flex flex-col items-center justify-center p-6 rounded-xl border border-dashed border-zinc-800 hover:border-red-500/60 hover:bg-red-950/20 text-zinc-500 hover:text-red-400 transition-all cursor-pointer group min-h-[220px]"
                 >
-                  <div className="w-14 h-14 rounded-full border border-dashed border-slate-700 group-hover:border-cyan-400 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
+                  <div className="w-14 h-14 rounded-full border border-dashed border-zinc-700 group-hover:border-red-500 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
                     <Share2 className="w-6 h-6" />
                   </div>
                   <span className="font-bold text-xs uppercase tracking-wider">
                     + Convidar Squadmate
                   </span>
-                  <span className="text-[10px] text-slate-500 mt-1">
+                  <span className="text-[10px] text-zinc-500 mt-1">
                     Clique para copiar link direto
                   </span>
                 </div>
@@ -533,9 +534,9 @@ export default function VortexCommsApp() {
 
               {/* Push-to-Talk Indicator banner if PTT enabled */}
               {voice.isPttMode && (
-                <div className="p-3 rounded-xl bg-slate-950 border border-cyan-500/40 flex items-center justify-between text-xs">
+                <div className="p-3 rounded-xl bg-black border border-red-900/60 flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2">
-                    <Radio className="w-4 h-4 text-cyan-400 animate-pulse" />
+                    <Radio className="w-4 h-4 text-red-500 animate-pulse" />
                     <span>
                       Modo Push-To-Talk ativo: Segure <strong>ESPAÇO</strong> no teclado para falar.
                     </span>
@@ -543,8 +544,8 @@ export default function VortexCommsApp() {
                   <span
                     className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                       voice.isPttActive
-                        ? 'bg-emerald-500 text-black shadow-[0_0_10px_rgba(57,255,20,0.8)]'
-                        : 'bg-slate-800 text-slate-400'
+                        ? 'bg-red-600 text-white shadow-[0_0_10px_rgba(255,0,55,0.8)]'
+                        : 'bg-zinc-900 text-zinc-400'
                     }`}
                   >
                     {voice.isPttActive ? 'TRANSMITINDO' : 'EM ESPERA'}
@@ -569,20 +570,20 @@ export default function VortexCommsApp() {
         </div>
       )}
 
-      {/* BOTTOM CONTROLS DECK (Only when in room) */}
+      {/* BOTTOM CONTROLS DECK in Red & Black (Only when in room) */}
       {inRoom && (
-        <div className="sticky bottom-0 z-40 w-full border-t border-slate-800/80 bg-slate-950/95 backdrop-blur-xl py-3 px-4 shadow-2xl">
+        <div className="sticky bottom-0 z-40 w-full border-t border-red-950/70 bg-black/95 backdrop-blur-xl py-3 px-4 shadow-2xl">
           <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
             {/* Left side: Hotkey hints */}
-            <div className="hidden md:flex items-center gap-3 text-[11px] font-mono text-slate-500">
+            <div className="hidden md:flex items-center gap-3 text-[11px] font-mono text-zinc-500">
               <span>
-                [<strong className="text-slate-300">M</strong>] Mute
+                [<strong className="text-zinc-300">M</strong>] Mute
               </span>
               <span>
-                [<strong className="text-slate-300">D</strong>] Deafen
+                [<strong className="text-zinc-300">D</strong>] Deafen
               </span>
               <span>
-                [<strong className="text-slate-300">Space</strong>] PTT
+                [<strong className="text-zinc-300">Space</strong>] PTT
               </span>
             </div>
 
@@ -593,12 +594,12 @@ export default function VortexCommsApp() {
                 onClick={voice.toggleMute}
                 className={`relative px-4 sm:px-6 py-3 rounded-2xl font-black text-xs sm:text-sm tracking-wider uppercase transition-all active:scale-95 flex items-center gap-2 ${
                   voice.isMuted
-                    ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-[0_0_20px_rgba(244,63,94,0.6)] border border-rose-400'
-                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.5)] border border-emerald-400'
+                    ? 'bg-zinc-900 hover:bg-zinc-800 text-red-400 shadow-[0_0_15px_rgba(255,0,55,0.3)] border border-red-800'
+                    : 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_25px_rgba(255,0,55,0.6)] border border-red-400'
                 }`}
                 title="Ativar/Desativar Microfone (M)"
               >
-                {voice.isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5 animate-pulse" />}
+                {voice.isMuted ? <MicOff className="w-5 h-5 text-red-400" /> : <Mic className="w-5 h-5 animate-pulse" />}
                 <span>{voice.isMuted ? 'MUTADO' : 'MICROFONE'}</span>
               </button>
 
@@ -608,7 +609,7 @@ export default function VortexCommsApp() {
                 className={`p-3 rounded-2xl font-bold transition-all active:scale-95 border ${
                   voice.isDeafened
                     ? 'bg-amber-600 border-amber-400 text-white shadow-[0_0_20px_rgba(217,119,6,0.6)]'
-                    : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white'
+                    : 'bg-zinc-950 border-zinc-800 hover:border-red-900 text-zinc-300 hover:text-white'
                 }`}
                 title="Ensurdecer / Mudo Geral (D)"
               >
@@ -618,20 +619,20 @@ export default function VortexCommsApp() {
               {/* SOUNDBOARD BUTTON */}
               <button
                 onClick={() => setShowSoundboard(true)}
-                className="px-3.5 py-3 rounded-2xl bg-slate-900 hover:bg-slate-850 border border-cyan-500/40 hover:border-cyan-400 text-cyan-300 font-bold text-xs sm:text-sm transition-all active:scale-95 shadow-[0_0_15px_rgba(0,240,255,0.2)] flex items-center gap-1.5"
+                className="px-3.5 py-3 rounded-2xl bg-zinc-950 hover:bg-zinc-900 border border-red-900/60 hover:border-red-500 text-red-400 font-bold text-xs sm:text-sm transition-all active:scale-95 shadow-[0_0_15px_rgba(255,0,55,0.2)] flex items-center gap-1.5"
                 title="Abrir Soundboard com Efeitos Sonoros"
               >
-                <Zap className="w-4 h-4 text-cyan-400" />
+                <Zap className="w-4 h-4 text-red-500" />
                 <span className="hidden sm:inline">SOUNDBOARD</span>
               </button>
 
               {/* AI SQUAD COACH BUTTON */}
               <button
                 onClick={() => setShowAiCoach(true)}
-                className="px-3.5 py-3 rounded-2xl bg-gradient-to-r from-fuchsia-950 to-purple-950 hover:from-fuchsia-900 hover:to-purple-900 border border-fuchsia-500/50 text-fuchsia-300 font-bold text-xs sm:text-sm transition-all active:scale-95 shadow-[0_0_15px_rgba(255,0,127,0.3)] flex items-center gap-1.5"
+                className="px-3.5 py-3 rounded-2xl bg-gradient-to-r from-red-950 to-zinc-950 hover:from-red-900 hover:to-zinc-900 border border-red-700/60 text-red-300 font-bold text-xs sm:text-sm transition-all active:scale-95 shadow-[0_0_15px_rgba(255,0,55,0.25)] flex items-center gap-1.5"
                 title="Chamar Bot Tático Gemini AI"
               >
-                <Bot className="w-4 h-4 text-fuchsia-400" />
+                <Bot className="w-4 h-4 text-red-400" />
                 <span className="hidden sm:inline">AI COACH</span>
               </button>
             </div>
@@ -640,7 +641,7 @@ export default function VortexCommsApp() {
             <div className="flex items-center">
               <button
                 onClick={() => setShowSettings(true)}
-                className="p-3 rounded-2xl bg-slate-900 border border-slate-800 hover:border-cyan-400 text-slate-300 hover:text-cyan-400 transition-colors"
+                className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 hover:border-red-500 text-zinc-300 hover:text-red-400 transition-colors"
                 title="Configurações de Áudio e Perfil"
               >
                 <Settings className="w-5 h-5" />
@@ -651,8 +652,8 @@ export default function VortexCommsApp() {
       )}
 
       {/* FOOTER */}
-      <footer className="w-full border-t border-slate-900 py-3 px-4 text-center text-[11px] font-mono text-slate-600">
-        VORTEX COMMS • WEBRTC AUDIO PARTY CHAT • PEER-TO-PEER MESH • GEMINI AI TACTICAL BOT
+      <footer className="w-full border-t border-zinc-900 py-3 px-4 text-center text-[11px] font-mono text-zinc-600">
+        VORTEX COMMS • REDLINE EDITION • WEBRTC AUDIO PARTY CHAT • PEER-TO-PEER MESH
       </footer>
 
       {/* MODALS */}
