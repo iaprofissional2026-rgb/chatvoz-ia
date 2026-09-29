@@ -16,6 +16,24 @@ export function getAudioContext(): AudioContext | null {
   return sharedAudioContext;
 }
 
+export function unlockAudioContext(): Promise<void> {
+  const ac = getAudioContext();
+  if (!ac) return Promise.resolve();
+  if (ac.state === 'suspended') {
+    return ac.resume();
+  }
+  try {
+    const buffer = ac.createBuffer(1, 1, 22050);
+    const source = ac.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ac.destination);
+    source.start(0);
+  } catch {
+    // ignore
+  }
+  return Promise.resolve();
+}
+
 export function playAirhorn(ctx?: AudioContext | null) {
   const ac = ctx || getAudioContext();
   if (!ac) return;

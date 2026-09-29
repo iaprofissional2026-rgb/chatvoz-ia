@@ -9,6 +9,8 @@ export interface PeerInfo {
   pingMs: number;
   joinedAt: number;
   isAiBot?: boolean;
+  hasAudio?: boolean;
+  slotIndex?: number;
 }
 
 export interface RoomState {

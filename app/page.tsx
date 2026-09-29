@@ -174,16 +174,30 @@ export default function VortexCommsApp() {
                 {selectedGame}
               </span>
 
-              {/* Squad count */}
-              <span className="flex items-center gap-1 text-xs font-mono px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-emerald-400">
+              {/* Squad count and slot */}
+              <span className="flex items-center gap-1.5 text-xs font-mono px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-emerald-400">
                 <Users className="w-3.5 h-3.5" />
                 <span>{peerList.length + 1} ONLINE</span>
+                <span className="text-[10px] text-cyan-400 font-bold bg-cyan-950 px-1 rounded border border-cyan-800 hidden sm:inline">
+                  SLOT #{voice.slotIndex + 1}
+                </span>
               </span>
             </div>
           )}
 
           {/* Quick Header Actions */}
           <div className="flex items-center gap-2">
+            {inRoom && (
+              <button
+                onClick={voice.handleUnlockAudio}
+                className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-emerald-400 transition-colors hidden sm:flex items-center gap-1.5 text-xs font-mono"
+                title="Desbloquear / Testar Saída de Som"
+              >
+                <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden md:inline">Som OK</span>
+              </button>
+            )}
+
             <button
               onClick={() => setShowSettings(true)}
               className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-cyan-400 transition-colors"
@@ -220,6 +234,27 @@ export default function VortexCommsApp() {
               className="px-3 py-1 bg-rose-800 hover:bg-rose-700 text-white rounded font-bold text-xs shrink-0"
             >
               Tentar Novamente
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Autoplay Audio Blocked Warning Banner */}
+      {voice.audioBlocked && (
+        <div className="max-w-4xl mx-auto w-full px-4 mt-4 animate-bounce">
+          <div className="p-3.5 rounded-xl bg-amber-950/95 border-2 border-amber-400 text-amber-200 text-xs flex flex-wrap items-center justify-between gap-3 shadow-[0_0_20px_rgba(251,191,36,0.5)]">
+            <div className="flex items-center gap-2.5">
+              <Volume2 className="w-5 h-5 text-amber-300 shrink-0" />
+              <div>
+                <span className="font-black text-amber-100 uppercase">ÁUDIO BLOQUEADO PELO NAVEGADOR:</span>{' '}
+                Clique no botão ao lado para desbloquear a saída de som e escutar seus amigos na chamada.
+              </div>
+            </div>
+            <button
+              onClick={voice.handleUnlockAudio}
+              className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded-lg text-xs uppercase shadow-md transition-all active:scale-95"
+            >
+              🔊 ATIVAR SOM DO SQUAD
             </button>
           </div>
         </div>
@@ -472,8 +507,10 @@ export default function VortexCommsApp() {
                     peer={peer}
                     isSelf={false}
                     volume={voice.peerVolumes[peer.id] ?? 1.0}
+                    stream={voice.remoteStreams[peer.id]}
                     onVolumeChange={(vol) => voice.setPeerVolume(peer.id, vol)}
                     onPoke={() => voice.broadcastSfx('airhorn')}
+                    onAudioError={voice.handleUnlockAudio}
                   />
                 ))}
 
@@ -639,6 +676,8 @@ export default function VortexCommsApp() {
         audioDevices={voice.audioDevices}
         selectedDeviceId={voice.selectedDeviceId}
         onSelectDevice={voice.setSelectedDeviceId}
+        testLoopback={voice.testLoopback}
+        onToggleLoopback={voice.toggleTestLoopback}
       />
 
       <AiCoachDrawer

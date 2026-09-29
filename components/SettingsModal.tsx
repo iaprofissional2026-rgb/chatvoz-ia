@@ -18,6 +18,8 @@ interface SettingsModalProps {
   audioDevices: MediaDeviceInfo[];
   selectedDeviceId: string;
   onSelectDevice: (deviceId: string) => void;
+  testLoopback?: boolean;
+  onToggleLoopback?: (enabled: boolean) => void;
 }
 
 export function SettingsModal({
@@ -34,6 +36,8 @@ export function SettingsModal({
   audioDevices,
   selectedDeviceId,
   onSelectDevice,
+  testLoopback = false,
+  onToggleLoopback,
 }: SettingsModalProps) {
   const [tempName, setTempName] = useState(userName);
 
@@ -147,6 +151,27 @@ export function SettingsModal({
                 Sons abaixo dessa linha não ativam seu microfone (corta barulhos de teclado e respiração).
               </p>
             </div>
+
+            {/* Loopback Test Button */}
+            {onToggleLoopback && (
+              <div className="mt-3 pt-3 border-t border-slate-800 flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-bold text-slate-200">Ouvir Retorno Próprio (Loopback)</div>
+                  <div className="text-[10px] text-slate-400">Escute a si mesmo no fone para testar se o som sai</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onToggleLoopback(!testLoopback)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    testLoopback
+                      ? 'bg-emerald-500 text-slate-950 shadow-[0_0_10px_rgba(57,255,20,0.6)]'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  {testLoopback ? 'DESATIVAR RETORNO' : 'OUVIR MEU RETORNO'}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Transmission Mode */}

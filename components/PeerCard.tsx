@@ -1,25 +1,54 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { PeerInfo } from '@/lib/types';
 import { AudioVisualizer } from './AudioVisualizer';
-import { Mic, MicOff, Volume2, VolumeX, Headphones, Bot, Shield, Signal } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Headphones, Bot, Shield, Signal, Radio } from 'lucide-react';
 
 interface PeerCardProps {
   peer: PeerInfo;
   isSelf: boolean;
   volume: number;
+  stream?: MediaStream | null;
   onVolumeChange?: (newVolume: number) => void;
   onPoke?: () => void;
+  onAudioError?: () => void;
 }
 
 export function PeerCard({
   peer,
   isSelf,
   volume,
+  stream,
   onVolumeChange,
   onPoke,
+  onAudioError,
 }: PeerCardProps) {
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
+
+  // Attach and play remote stream in DOM audio element
+  useEffect(() => {
+    if (isSelf || !audioElRef.current) return;
+
+    if (stream) {
+      audioElRef.current.srcObject = stream;
+      audioElRef.current.volume = Math.min(1, Math.max(0, volume));
+      audioElRef.current.play().catch((err) => {
+        console.warn('Audio play prevented by browser policy:', err);
+        onAudioError?.();
+      });
+    } else {
+      audioElRef.current.srcObject = null;
+    }
+  }, [stream, isSelf, volume, onAudioError]);
+
+  // Sync volume changes to audio element
+  useEffect(() => {
+    if (audioElRef.current) {
+      audioElRef.current.volume = Math.min(1, Math.max(0, volume));
+    }
+  }, [volume]);
+
   // Generate consistent vibrant gamer color from avatarSeed
   const getGamerGradient = (seed: string) => {
     const charCode = seed.charCodeAt(0) || 65;
@@ -48,6 +77,17 @@ export function PeerCard({
           : 'border-slate-800 hover:border-cyan-500/50 hover:bg-slate-850'
       }`}
     >
+      {/* Hidden real DOM audio element for remote squadmate */}
+      {!isSelf && (
+        <audio
+          ref={audioElRef}
+          autoPlay
+          playsInline
+          className="hidden"
+          aria-hidden="true"
+        />
+      )}
+
       {/* Decorative cyber corner accents */}
       <div className="absolute top-0 left-0 w-2.5 h-2.5 border-t-2 border-l-2 border-cyan-400" />
       <div className="absolute top-0 right-0 w-2.5 h-2.5 border-t-2 border-r-2 border-pink-500" />
@@ -59,6 +99,11 @@ export function PeerCard({
         <div className="flex items-center gap-1.5 font-mono text-[10px] text-slate-400">
           <Signal className="w-3 h-3 text-emerald-400" />
           <span>{peer.pingMs || 18}ms</span>
+          {!isSelf && stream && (
+            <span className="flex items-center gap-0.5 text-cyan-400 font-bold ml-1">
+              <Radio className="w-2.5 h-2.5 animate-pulse" /> P2P
+            </span>
+          )}
         </div>
 
         {peer.isAiBot ? (
@@ -137,19 +182,21 @@ export function PeerCard({
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" /> FALANDO...
             </span>
           ) : (
-            <span className="text-[11px] font-mono text-slate-500">CONECTADO</span>
+            <span className="text-[11px] font-mono text-slate-500">
+              {!isSelf && stream ? 'ÁUDIO ATIVO' : 'CONECTADO'}
+            </span>
           )}
         </div>
       </div>
 
-      {/* Mini Audio Visualizer */}
+      {/* Audio Visualizer Meter */}
       <div className="w-full my-2 flex justify-center">
         <AudioVisualizer
-          audioLevel={peer.audioLevel || (peer.isSpeaking ? 50 : 0)}
+          audioLevel={peer.audioLevel || (peer.isSpeaking ? 55 : 0)}
           isSpeaking={peer.isSpeaking}
           isMuted={peer.isMuted || peer.isDeafened}
-          barsCount={12}
-          height={18}
+          barsCount={14}
+          height={20}
           colorScheme={peer.isAiBot ? 'magenta' : 'lime'}
         />
       </div>
