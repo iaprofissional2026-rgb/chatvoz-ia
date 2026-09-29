@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useVoiceRoom } from '@/hooks/useVoiceRoom';
 import { GamerLogo } from '@/components/GamerLogo';
 import { PeerCard } from '@/components/PeerCard';
@@ -86,6 +86,12 @@ export default function VortexCommsApp() {
     return 'Reaper_777';
   });
 
+  // WebRTC Voice Room Hook
+  const voice = useVoiceRoom({
+    roomId: inRoom ? roomId : '',
+    userName,
+  });
+
   // Modal controls
   const [showSoundboard, setShowSoundboard] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -100,7 +106,9 @@ export default function VortexCommsApp() {
   };
 
   // Create new random squad room
-  const handleCreateRoom = () => {
+  const handleCreateRoom = useCallback(async () => {
+    voice.initMicrophone().catch(() => {});
+
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let code = '';
     for (let i = 0; i < 5; i++) {
@@ -112,32 +120,35 @@ export default function VortexCommsApp() {
       const newUrl = `${window.location.pathname}?room=${code}`;
       window.history.pushState({}, '', newUrl);
     }
-  };
+  }, [voice]);
 
   // Join existing squad room
-  const handleJoinRoom = (e: React.FormEvent) => {
+  const handleJoinRoom = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     const clean = joinInputCode.trim().toUpperCase();
     if (!clean) return;
+
+    voice.initMicrophone().catch(() => {});
+
     setRoomId(clean);
     setInRoom(true);
     if (typeof window !== 'undefined') {
       const newUrl = `${window.location.pathname}?room=${clean}`;
       window.history.pushState({}, '', newUrl);
     }
-  };
+  }, [joinInputCode, voice]);
 
   // Leave current room
-  const handleLeaveRoom = () => {
+  const handleLeaveRoom = useCallback(() => {
     setInRoom(false);
     setRoomId('');
     if (typeof window !== 'undefined') {
       window.history.pushState({}, '', window.location.pathname);
     }
-  };
+  }, []);
 
   // Copy share invite link
-  const handleCopyLink = () => {
+  const handleCopyLink = useCallback(() => {
     if (typeof window !== 'undefined') {
       const shareUrl = `${window.location.origin}${window.location.pathname}?room=${roomId}`;
       navigator.clipboard.writeText(shareUrl).then(() => {
@@ -145,13 +156,7 @@ export default function VortexCommsApp() {
         setTimeout(() => setCopiedLink(false), 2500);
       });
     }
-  };
-
-  // WebRTC Voice Room Hook
-  const voice = useVoiceRoom({
-    roomId: inRoom ? roomId : '',
-    userName,
-  });
+  }, [roomId]);
 
   // Calculate squad members list
   const peerList = Object.values(voice.peers);
@@ -416,8 +421,40 @@ export default function VortexCommsApp() {
                     />
                   </div>
 
+                  {!voice.hasMicPermission ? (
+                    <button
+                      type="button"
+                      onClick={() => voice.initMicrophone()}
+                      disabled={voice.isMicInitializing}
+                      className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs uppercase flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(255,0,55,0.6)] transition-all animate-pulse cursor-pointer border border-red-400/50"
+                    >
+                      <Mic className="w-4 h-4" />
+                      {voice.isMicInitializing ? 'SOLICITANDO PERMISSÃO...' : 'CLIQUE AQUI PARA ATIVAR / TESTAR MICROFONE'}
+                    </button>
+                  ) : (
+                    <div className="flex items-center justify-between text-[11px] font-mono text-emerald-400 bg-emerald-950/40 p-2 rounded-lg border border-emerald-800/60">
+                      <span className="flex items-center gap-1.5 font-bold">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
+                        MICROFONE ATIVO (FALE PARA TESTAR)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => voice.toggleTestLoopback(!voice.testLoopback)}
+                        className={`text-[10px] px-2 py-0.5 rounded transition-all font-bold ${
+                          voice.testLoopback
+                            ? 'bg-red-600 text-white shadow-[0_0_10px_rgba(255,0,55,0.8)]'
+                            : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                        }`}
+                      >
+                        {voice.testLoopback ? 'Retorno Ligado' : 'Ouvir Retorno'}
+                      </button>
+                    </div>
+                  )}
+
                   <p className="text-[11px] text-zinc-400 leading-snug">
-                    Fale algo no microfone para ver as ondas vermelhas reagirem em tempo real.
+                    {voice.hasMicPermission
+                      ? 'Microfone captando em tempo real. Fale ou faça barulho para ver as barras subirem.'
+                      : 'Clique no botão acima para liberar o microfone no navegador e testar sua voz.'}
                   </p>
                 </div>
 

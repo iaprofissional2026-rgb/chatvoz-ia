@@ -41,11 +41,13 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
   });
 
   const [connected, setConnected] = useState(false);
+  const [hasMicPermission, setHasMicPermission] = useState(false);
+  const [isMicInitializing, setIsMicInitializing] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
   const [isPttMode, setIsPttMode] = useState(false);
   const [isPttActive, setIsPttActive] = useState(false);
-  const [noiseGateThreshold, setNoiseGateThreshold] = useState(15);
+  const [noiseGateThreshold, setNoiseGateThreshold] = useState(8);
   const [audioLevel, setAudioLevel] = useState(0);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [testLoopback, setTestLoopback] = useState(false);
@@ -61,6 +63,8 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
 
   // WebRTC internal refs
   const localStreamRef = useRef<MediaStream | null>(null);
+  const localAnalyserRef = useRef<AnalyserNode | null>(null);
+  const localSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const peerConnectionsRef = useRef<Record<string, RTCPeerConnection>>({});
   const remoteGainNodesRef = useRef<Record<string, GainNode>>({});
   const remoteAnalysersRef = useRef<Record<string, AnalyserNode>>({});
@@ -92,30 +96,50 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
     setAudioBlocked(false);
   }, []);
 
-  // Request Microphone and setup Audio Analyser
+  // Request Microphone and setup Audio Analyser (works on landing page and in room)
   const initMicrophone = useCallback(
     async (deviceId?: string): Promise<MediaStream | null> => {
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+        setMicPermissionError('Navegador não suporta captura de microfone WebRTC.');
+        return null;
+      }
+
+      setIsMicInitializing(true);
+      setMicPermissionError(null);
+
       try {
-        setMicPermissionError(null);
         await unlockAudioContext();
 
-        if (localStreamRef.current) {
-          localStreamRef.current.getTracks().forEach((t) => t.stop());
+        // Build robust media constraints
+        const targetDeviceId = deviceId || selectedDeviceId;
+        const audioConstraints: MediaTrackConstraints = {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        };
+        if (targetDeviceId && targetDeviceId.trim()) {
+          audioConstraints.deviceId = { ideal: targetDeviceId };
         }
 
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-          },
-          video: false,
-        });
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: audioConstraints,
+            video: false,
+          });
+        } catch (constraintErr: unknown) {
+          console.warn('Advanced audio constraints failed, trying basic audio: true', constraintErr);
+          // Fallback to basic audio
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false,
+          });
+        }
 
         localStreamRef.current = stream;
+        setHasMicPermission(true);
 
-        // Apply mute state
+        // Apply initial mute state
         const audioTrack = stream.getAudioTracks()[0];
         if (audioTrack) {
           audioTrack.enabled = !isMuted && (!isPttMode || isPttActive);
@@ -129,7 +153,11 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
             if (sender) {
               sender.replaceTrack(audioTrack).catch(() => {});
             } else {
-              pc.addTrack(audioTrack, stream);
+              try {
+                pc.addTrack(audioTrack, stream);
+              } catch {
+                // ignore
+              }
             }
           }
         });
@@ -140,11 +168,28 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
           if (audioCtx.state === 'suspended') {
             audioCtx.resume().catch(() => {});
           }
-          const source = audioCtx.createMediaStreamSource(stream);
 
-          // Loopback Gain Node
+          // Disconnect old nodes if present
+          if (localSourceRef.current) {
+            try {
+              localSourceRef.current.disconnect();
+            } catch {
+              // ignore
+            }
+          }
+
+          const source = audioCtx.createMediaStreamSource(stream);
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 256;
+          analyser.smoothingTimeConstant = 0.4;
+          source.connect(analyser);
+
+          localSourceRef.current = source;
+          localAnalyserRef.current = analyser;
+
+          // Loopback Gain Node (Self-test)
           const loopGain = audioCtx.createGain();
-          loopGain.gain.value = testLoopback ? 0.8 : 0;
+          loopGain.gain.value = testLoopback ? 0.75 : 0;
           source.connect(loopGain);
           loopGain.connect(audioCtx.destination);
           loopbackGainRef.current = loopGain;
@@ -153,20 +198,54 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
         await updateAudioDevices();
         return stream;
       } catch (err: unknown) {
-        console.warn('Microphone error:', err);
-        const msg = err instanceof Error ? err.message : 'Permissão de microfone negada.';
-        setMicPermissionError(msg);
+        console.warn('Microphone permission error:', err);
+        setHasMicPermission(false);
+
+        let userMsg = 'Permissão de microfone negada.';
+        if (err instanceof Error) {
+          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            userMsg =
+              'O navegador bloqueou o microfone. Clique no ícone de cadeado (ao lado do endereço do site) e mude Microfone para Permitir.';
+          } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+            userMsg = 'Nenhum microfone encontrado conectado no seu dispositivo.';
+          } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+            userMsg =
+              'O microfone está ocupado por outro aplicativo (Discord, Zoom ou jogo). Feche o outro app e tente novamente.';
+          } else {
+            userMsg = err.message;
+          }
+        }
+        setMicPermissionError(userMsg);
         return null;
+      } finally {
+        setIsMicInitializing(false);
       }
     },
-    [isMuted, isPttMode, isPttActive, testLoopback, updateAudioDevices]
+    [selectedDeviceId, isMuted, isPttMode, isPttActive, testLoopback, updateAudioDevices]
   );
+
+  // Auto-request mic on first user interaction or mount if supported
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return;
+
+    // Check if permission was already granted previously
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions
+        .query({ name: 'microphone' as PermissionName })
+        .then((perm) => {
+          if (perm.state === 'granted') {
+            initMicrophone();
+          }
+        })
+        .catch(() => {});
+    }
+  }, [initMicrophone]);
 
   // Toggle loopback self-test
   const toggleTestLoopback = useCallback((enabled: boolean) => {
     setTestLoopback(enabled);
     if (loopbackGainRef.current) {
-      loopbackGainRef.current.gain.value = enabled ? 0.8 : 0;
+      loopbackGainRef.current.gain.value = enabled ? 0.75 : 0;
     }
   }, []);
 
@@ -192,7 +271,7 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
         }
       }
 
-      // 2. Send via Next.js API (relays to cloud store across Vercel)
+      // 2. Send via Next.js API (relays across Vercel)
       try {
         fetch('/api/signaling', {
           method: 'POST',
@@ -233,7 +312,7 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
         gainNode.gain.value = isDeafened ? 0 : initialVol;
 
         const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 64;
+        analyser.fftSize = 128;
 
         source.connect(analyser);
         analyser.connect(gainNode);
@@ -258,10 +337,21 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
       const pc = new RTCPeerConnection(ICE_SERVERS);
       peerConnectionsRef.current[remId] = pc;
 
-      // Add local audio track
+      // Always add audio transceiver so SDP offer/answer includes audio channels
+      try {
+        pc.addTransceiver('audio', { direction: 'sendrecv' });
+      } catch {
+        // ignore
+      }
+
+      // Add local audio track if ready
       if (localStreamRef.current) {
         localStreamRef.current.getAudioTracks().forEach((track) => {
-          pc.addTrack(track, localStreamRef.current!);
+          try {
+            pc.addTrack(track, localStreamRef.current!);
+          } catch {
+            // ignore
+          }
         });
       }
 
@@ -476,6 +566,7 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
     }
 
     async function startVoiceRoom() {
+      // Make sure mic is initialized
       await initMicrophone(selectedDeviceId);
       if (!isMounted) return;
 
@@ -512,43 +603,29 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
       peerConnectionsRef.current = {};
       remoteGainNodesRef.current = {};
       remoteAnalysersRef.current = {};
-
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((t) => t.stop());
-        localStreamRef.current = null;
-      }
     };
   }, [roomId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Local & Remote Audio Meter Animation Loop
+  // Continuous Audio Meter Animation Loop (RMS Time-Domain Calculation)
   useEffect(() => {
-    const dataArray = new Uint8Array(64);
-    const audioCtx = getAudioContext();
-    let localAnalyser: AnalyserNode | null = null;
-    let localSource: MediaStreamAudioSourceNode | null = null;
-
-    if (audioCtx && localStreamRef.current) {
-      try {
-        localSource = audioCtx.createMediaStreamSource(localStreamRef.current);
-        localAnalyser = audioCtx.createAnalyser();
-        localAnalyser.fftSize = 64;
-        localSource.connect(localAnalyser);
-      } catch {
-        // ignore
-      }
-    }
+    const timeDomainBuffer = new Uint8Array(256);
+    const freqDataBuffer = new Uint8Array(64);
 
     const checkAudioLevels = () => {
-      // 1. Local mic level
-      if (localAnalyser && !isMuted && (!isPttMode || isPttActive)) {
-        localAnalyser.getByteFrequencyData(dataArray);
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i];
+      // 1. Measure Local Mic Level via RMS in Time Domain
+      if (localAnalyserRef.current && !isMuted && (!isPttMode || isPttActive)) {
+        localAnalyserRef.current.getByteTimeDomainData(timeDomainBuffer);
+
+        let sumSquares = 0;
+        for (let i = 0; i < timeDomainBuffer.length; i++) {
+          const sample = (timeDomainBuffer[i] - 128) / 128;
+          sumSquares += sample * sample;
         }
-        const avg = sum / dataArray.length;
-        const norm = Math.min(100, Math.round((avg / 128) * 100));
+        const rms = Math.sqrt(sumSquares / timeDomainBuffer.length);
+        // Map RMS cleanly to 0-100%
+        const norm = Math.min(100, Math.round(rms * 320));
         setAudioLevel(norm);
+
         const speaking = norm > noiseGateThreshold;
         setIsSpeaking(speaking);
       } else {
@@ -556,16 +633,16 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
         setIsSpeaking(false);
       }
 
-      // 2. Remote peers level
+      // 2. Measure Remote Peers Levels
       Object.entries(remoteAnalysersRef.current).forEach(([rId, analyser]) => {
-        analyser.getByteFrequencyData(dataArray);
+        analyser.getByteFrequencyData(freqDataBuffer);
         let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i];
+        for (let i = 0; i < freqDataBuffer.length; i++) {
+          sum += freqDataBuffer[i];
         }
-        const avg = sum / dataArray.length;
+        const avg = sum / freqDataBuffer.length;
         const norm = Math.min(100, Math.round((avg / 128) * 100));
-        const isSpk = norm > 14;
+        const isSpk = norm > 10;
 
         setPeers((prev) => {
           if (!prev[rId] || prev[rId].audioLevel === norm) return prev;
@@ -587,15 +664,8 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
 
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      if (localSource && localAnalyser) {
-        try {
-          localSource.disconnect();
-        } catch {
-          // ignore
-        }
-      }
     };
-  }, [isMuted, isPttMode, isPttActive, noiseGateThreshold]);
+  }, [isMuted, isPttMode, isPttActive, noiseGateThreshold, hasMicPermission]);
 
   // Toggle Mute
   const toggleMute = useCallback(() => {
@@ -734,6 +804,8 @@ export function useVoiceRoom({ roomId, userName }: UseVoiceRoomOptions) {
   return {
     peerId,
     connected,
+    hasMicPermission,
+    isMicInitializing,
     isMuted,
     isDeafened,
     isPttMode,
